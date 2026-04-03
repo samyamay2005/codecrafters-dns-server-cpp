@@ -34,16 +34,18 @@ if (setsockopt(udpSocket, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) 
 }
 //
 sockaddr_in serv_addr = { .sin_family = AF_INET,
-//                              .sin_port = htons(2053),
-//                              .sin_addr = { htonl(INADDR_ANY) },
-//                            };
+    .sin_port = htons(2053),
+    .sin_addr = { htonl(INADDR_ANY) },
+};
 //
 if (bind(udpSocket, reinterpret_cast<struct sockaddr*>(&serv_addr), sizeof(serv_addr)) != 0) {
     std::cerr << "Bind failed: " << strerror(errno) << std::endl;
     return 1;
 }
 //
+
 int bytesRead;
+
 char buffer[512];
 socklen_t clientAddrLen = sizeof(clientAddress);
 //
