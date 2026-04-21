@@ -90,7 +90,8 @@ int main() {
 
         // ANCOUNT, NSCOUNT, ARCOUNT = 0
         uint16_t zero = 0;
-        memcpy(&response[6], &zero, 2);
+        uint16_t ancount = htons(1);
+        memcpy(&response[6], &ancount, 2); // ANCOUNT = 1
         memcpy(&response[8], &zero, 2);
         memcpy(&response[10], &zero, 2);
 
@@ -99,12 +100,44 @@ int main() {
 
         // Step 7: Send response
         int responseSize = 12 + questionLength;
+        int ansStart = responseSize;
+        responseSize = ansStart;
+        // ---- ANSWER SECTION ----
 
-        if (sendto(udpSocket, response, responseSize, 0,
-                reinterpret_cast<struct sockaddr*>(&clientAddress),
-                sizeof(clientAddress)) == -1) {
-            perror("Failed to send response");
-        }
+        // NAME (pointer to domain at offset 12)
+        response[ansStart++] = 0xC0;
+        response[ansStart++] = 0x0C;
+
+        // TYPE = A (1)
+        uint16_t type = htons(1);
+        memcpy(&response[ansStart], &type, 2);
+        ansStart += 2;
+
+        // CLASS = IN (1)
+        uint16_t class_ = htons(1);
+        memcpy(&response[ansStart], &class_, 2);
+        ansStart += 2;
+
+        // TTL = 60 seconds
+        uint32_t ttl = htonl(60);
+        memcpy(&response[ansStart], &ttl, 4);
+        ansStart += 4;
+
+        // RDLENGTH = 4
+        uint16_t rdlength = htons(4);
+        memcpy(&response[ansStart], &rdlength, 2);
+        ansStart += 2;
+
+        // RDATA = IP (example: 8.8.8.8)
+        response[ansStart++] = 8;
+        response[ansStart++] = 8;
+        response[ansStart++] = 8;
+        response[ansStart++] = 8;
+        // if (sendto(udpSocket, response, responseSize, 0,
+        //         reinterpret_cast<struct sockaddr*>(&clientAddress),
+        //         sizeof(clientAddress)) == -1) {
+        //     perror("Failed to send response");
+        // }
 
 
     }
