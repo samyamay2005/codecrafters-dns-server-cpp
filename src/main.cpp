@@ -128,12 +128,12 @@ int main() {
                 reinterpret_cast<struct sockaddr*>(&clientAddress),
                 sizeof(clientAddress)) == -1) {
             perror("Failed to send response");
-    }
+        }
         //
         // //        // Send response
-        // if (sendto(udpSocket, response, sizeof(response), 0, reinterpret_cast<struct sockaddr*>(&clientAddress), sizeof(clientAddress)) == -1) {
-        //     perror("Failed to send response");
-        // }
+        if (sendto(udpSocket, response, sizeof(response), 0, reinterpret_cast<struct sockaddr*>(&clientAddress), sizeof(clientAddress)) == -1) {
+             perror("Failed to send response");
+        }
 
 
     }
