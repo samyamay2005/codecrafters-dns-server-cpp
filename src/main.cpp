@@ -4,14 +4,29 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include<vector>
-int main() {
+int main(int argc, char *argv[]) {
     // Flush after every std::cout / std::cerr
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
     // Disable output buffering
     setbuf(stdout, NULL);
+    std::string resolverIP;
+    int resolverPort;
 
+    if (argc == 3 && std::string(argv[1]) == "--resolver") {
+        std::string addr = argv[2];
+        int colon = addr.find(':');
+        resolverIP = addr.substr(0, colon);
+        resolverPort = std::stoi(addr.substr(colon + 1));
+    }
+
+    int resolverSock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    sockaddr_in resolverAddr{};
+    resolverAddr.sin_family = AF_INET;
+    resolverAddr.sin_port = htons(resolverPort);
+    inet_pton(AF_INET, resolverIP.c_str(), &resolverAddr.sin_addr);
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     std::cout << "Logs from your program will appear here!" << std::endl;
 
@@ -59,6 +74,17 @@ int main() {
 
         // buffer[bytesRead] = '\0';
         std::cout << "Received " << bytesRead << " bytes: " << buffer << std::endl;
+
+        sendto(resolverSock, buffer, bytesRead, 0,
+        (sockaddr*)&resolverAddr, sizeof(resolverAddr));
+
+        char resolverResponse[512];
+        socklen_t resolverLen = sizeof(resolverAddr);
+
+        int resBytes = recvfrom(resolverSock, resolverResponse, 512, 0,
+                       (sockaddr*)&resolverAddr, &resolverLen);
+        resolverResponse[0] = buffer[0];
+        resolverResponse[1] = buffer[1];
         // Step 1: Find question section length
         int pos = 12;
 
@@ -201,7 +227,8 @@ int main() {
 
         // Step 7: Send response
         int resPosAfterQ = resPos;
-
+        sendto(udpSocket, resolverResponse, resBytes, 0,
+        (sockaddr*)&clientAddress, clientAddrLen);
         // set ANCOUNT = number of questions
         uint16_t ancount_net = htons(qdcount);
         memcpy(&response[6], &ancount_net, 2);
