@@ -101,7 +101,7 @@ int main() {
         // Step 7: Send response
         int responseSize = 12 + questionLength;
         int ansStart = responseSize;
-        responseSize = ansStart;
+        
         // ---- ANSWER SECTION ----
 
         // NAME (pointer to domain at offset 12)
@@ -133,11 +133,13 @@ int main() {
         response[ansStart++] = 8;
         response[ansStart++] = 8;
         response[ansStart++] = 8;
-        // if (sendto(udpSocket, response, responseSize, 0,
-        //         reinterpret_cast<struct sockaddr*>(&clientAddress),
-        //         sizeof(clientAddress)) == -1) {
-        //     perror("Failed to send response");
-        // }
+
+        responseSize = ansStart;
+        if (sendto(udpSocket, response, responseSize, 0,
+                reinterpret_cast<struct sockaddr*>(&clientAddress),
+                sizeof(clientAddress)) == -1) {
+            perror("Failed to send response");
+        }
 
 
     }
