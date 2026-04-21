@@ -77,17 +77,65 @@ int main() {
         memcpy(&response[8], &zero, 2);  // NSCOUNT
         memcpy(&response[10], &zero, 2); // ARCOUNT
 
-// Send response
+        // Send response
         if (sendto(udpSocket, response, 12, 0,
                 reinterpret_cast<struct sockaddr*>(&clientAddress),
                 sizeof(clientAddress)) == -1) {
             perror("Failed to send response");
         }
-//
-//        // Send response
-        if (sendto(udpSocket, response, sizeof(response), 0, reinterpret_cast<struct sockaddr*>(&clientAddress), sizeof(clientAddress)) == -1) {
-            perror("Failed to send response");
+
+        // Step 1: Find question section length
+        int pos = 12;
+
+        while (buffer[pos] != 0) {
+            pos += buffer[pos] + 1;
         }
+
+        pos += 1;  // null byte
+        pos += 4;  // type + class
+
+        int questionLength = pos - 12;
+
+        // Step 2: Create response buffer
+        char response[512];
+        memset(response, 0, 512);
+
+        // Step 3: Copy ID
+        response[0] = buffer[0];
+        response[1] = buffer[1];
+
+        // Step 4: Flags (QR = 1)
+        uint16_t flags = htons(0x8000);
+        memcpy(&response[2], &flags, 2);
+
+        // Step 5: QDCOUNT = 1
+        uint16_t qdcount = htons(1);
+        memcpy(&response[4], &qdcount, 2);
+
+        // ANCOUNT, NSCOUNT, ARCOUNT = 0
+        uint16_t zero = 0;
+        memcpy(&response[6], &zero, 2);
+        memcpy(&response[8], &zero, 2);
+        memcpy(&response[10], &zero, 2);
+
+        // Step 6: Copy question section
+        memcpy(&response[12], &buffer[12], questionLength);
+
+        // Step 7: Send full response
+        int responseSize = 12 + questionLength;
+
+        if (sendto(udpSocket, response, responseSize, 0,
+                reinterpret_cast<struct sockaddr*>(&clientAddress),
+                sizeof(clientAddress)) == -1) {
+            perror("Failed to send response");
+    }
+        //
+        // //        // Send response
+        // if (sendto(udpSocket, response, sizeof(response), 0, reinterpret_cast<struct sockaddr*>(&clientAddress), sizeof(clientAddress)) == -1) {
+        //     perror("Failed to send response");
+        // }
+
+
     }
 //
     close(udpSocket);
