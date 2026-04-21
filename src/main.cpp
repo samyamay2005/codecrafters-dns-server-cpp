@@ -3,7 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
-
+#include<vector>
 int main() {
     // Flush after every std::cout / std::cerr
     std::cout << std::unitbuf;
@@ -25,8 +25,8 @@ int main() {
         return 1;
     }
 
-//    // Since the tester restarts your program quite often, setting REUSE_PORT
-//    // ensures that we don't run into 'Address already in use' errors
+    // Since the tester restarts your program quite often, setting REUSE_PORT
+    // ensures that we don't run into 'Address already in use' errors
     int reuse = 1;
     if (setsockopt(udpSocket, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
         std::cerr << "SO_REUSEPORT failed: " << strerror(errno) << std::endl;
@@ -48,7 +48,7 @@ int main() {
 
     char buffer[512];
     socklen_t clientAddrLen = sizeof(clientAddress);
-//
+
     while (true) {
     // Receive data
         bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr*>(&clientAddress), &clientAddrLen);
@@ -62,14 +62,50 @@ int main() {
         // Step 1: Find question section length
         int pos = 12;
 
-        while (buffer[pos] != 0) {
-            pos += buffer[pos] + 1;
+        std::vector<std::string> domains;
+        std::vector<std::pair<uint16_t, uint16_t>> qinfo;
+
+        // helper lambda for reading domain (handles compression)
+        auto readDomain = [&](int &p) {
+        std::string domain = "";
+        int jumped = 0, jumpPos = -1;
+
+        while (buffer[p] != 0) {
+            if ((buffer[p] & 0xC0) == 0xC0) {
+                int offset = ((buffer[p] & 0x3F) << 8) | buffer[p + 1];
+                if (!jumped) jumpPos = p + 2;
+                p = offset;
+                jumped = 1;
+                continue;
+            }
+
+        int len = buffer[p++];
+        if (!domain.empty()) domain += ".";
+
+        for (int i = 0; i < len; i++) {
+            domain += buffer[p++];
+        }
         }
 
-        pos += 1;  // null byte
-        pos += 4;  // type + class
+            if (!jumped) p++;
+            else p = jumpPos;
 
-        int questionLength = pos - 12;
+            return domain;
+        };
+        uint16_t qdcount;
+        memcpy(&qdcount, &buffer[4], 2);
+        qdcount = ntohs(qdcount);
+        // parse ALL questions
+        for (int i = 0; i < qdcount; i++) {
+            std::string domain = readDomain(pos);
+            domains.push_back(domain);
+
+            uint16_t type, class_;
+            memcpy(&type, &buffer[pos], 2); pos += 2;
+            memcpy(&class_, &buffer[pos], 2); pos += 2;
+
+            qinfo.push_back({type, class_});
+        }
 
         // Step 2: Create response buffer
         char response[512];
@@ -87,7 +123,7 @@ int main() {
 
         // Extract OPCODE and RD
         uint16_t opcode = (reqFlags >> 11) & 0xF;
-        uint16_t rd     = (reqFlags >> 8)  & 0x1;
+        uint16_t rd = (reqFlags >> 8)  & 0x1;
 
         // Build response flags
         uint16_t flags = 0;
@@ -107,7 +143,8 @@ int main() {
         } else {
             flags |= 4;   // not implemented
         }
-
+        uint16_t qdcount_net = htons(qdcount);
+        memcpy(&response[4], &qdcount_net, 2);
         // Convert to network byte order
         flags = htons(flags);
 
@@ -115,56 +152,108 @@ int main() {
         memcpy(&response[2], &flags, 2);    
 
         // Step 5: QDCOUNT = 1
-        uint16_t qdcount = htons(1);
-        memcpy(&response[4], &qdcount, 2);
+        // uint16_t qdcount;
+        // memcpy(&qdcount, &buffer[4], 2);
+        // qdcount = ntohs(qdcount);
 
         // ANCOUNT, NSCOUNT, ARCOUNT = 0
         uint16_t zero = 0;
-        uint16_t ancount = htons(1);
-        memcpy(&response[6], &ancount, 2); // ANCOUNT = 1
+
+        // QDCOUNT (already set earlier)
+
+        // ANCOUNT (set later)
+
+        // NSCOUNT = 0
         memcpy(&response[8], &zero, 2);
+
+        // ARCOUNT = 0
         memcpy(&response[10], &zero, 2);
 
         // Step 6: Copy question section
-        memcpy(&response[12], &buffer[12], questionLength);
+        int resPos = 12;
+
+        for (int i = 0; i < qdcount; i++) {
+            std::string &domain = domains[i];
+
+            // encode domain
+            size_t start = 0;
+            while (true) {
+            size_t dot = domain.find('.', start);
+            std::string label = (dot == std::string::npos)
+                ? domain.substr(start)
+                : domain.substr(start, dot - start);
+
+                response[resPos++] = label.size();
+                for (char c : label) response[resPos++] = c;
+
+                if (dot == std::string::npos) break;
+                start = dot + 1;
+            }
+
+            response[resPos++] = 0;
+
+            memcpy(&response[resPos], &qinfo[i].first, 2);
+            resPos += 2;
+
+            memcpy(&response[resPos], &qinfo[i].second, 2);
+            resPos += 2;
+        }
 
         // Step 7: Send response
-        int responseSize = 12 + questionLength;
-        int ansStart = responseSize;
-        
-        // ---- ANSWER SECTION ----
+        int resPosAfterQ = resPos;
 
-        // NAME (pointer to domain at offset 12)
-        response[ansStart++] = 0xC0;
-        response[ansStart++] = 0x0C;
+        // set ANCOUNT = number of questions
+        uint16_t ancount_net = htons(qdcount);
+        memcpy(&response[6], &ancount_net, 2);
 
-        // TYPE = A (1)
-        uint16_t type = htons(1);
-        memcpy(&response[ansStart], &type, 2);
-        ansStart += 2;
+        for (int i = 0; i < qdcount; i++) {
+            std::string &domain = domains[i];
 
-        // CLASS = IN (1)
-        uint16_t class_ = htons(1);
-        memcpy(&response[ansStart], &class_, 2);
-        ansStart += 2;
+            // NAME (uncompressed)
+            size_t start = 0;
+            while (true) {
+                size_t dot = domain.find('.', start);
+                std::string label = (dot == std::string::npos)
+                ? domain.substr(start)
+                : domain.substr(start, dot - start);
 
-        // TTL = 60 seconds
-        uint32_t ttl = htonl(60);
-        memcpy(&response[ansStart], &ttl, 4);
-        ansStart += 4;
+                response[resPos++] = label.size();
+                for (char c : label) response[resPos++] = c;
 
-        // RDLENGTH = 4
-        uint16_t rdlength = htons(4);
-        memcpy(&response[ansStart], &rdlength, 2);
-        ansStart += 2;
+                if (dot == std::string::npos) break;
+                start = dot + 1;
+            }
 
-        // RDATA = IP (example: 8.8.8.8)
-        response[ansStart++] = 8;
-        response[ansStart++] = 8;
-        response[ansStart++] = 8;
-        response[ansStart++] = 8;
+            response[resPos++] = 0;
 
-        responseSize = ansStart;
+            // TYPE = A
+            uint16_t type = htons(1);
+            memcpy(&response[resPos], &type, 2);
+            resPos += 2;
+
+            // CLASS = IN
+            uint16_t class_ = htons(1);
+            memcpy(&response[resPos], &class_, 2);
+            resPos += 2;
+
+            // TTL
+            uint32_t ttl = htonl(60);
+            memcpy(&response[resPos], &ttl, 4);
+            resPos += 4;
+
+            // RDLENGTH
+            uint16_t rdlength = htons(4);
+            memcpy(&response[resPos], &rdlength, 2);
+            resPos += 2;
+
+            // IP (any)
+            response[resPos++] = 1;
+            response[resPos++] = 2;
+            response[resPos++] = 3;
+            response[resPos++] = 4;
+        }
+
+        int responseSize = resPos;
         if (sendto(udpSocket, response, responseSize, 0,
                 reinterpret_cast<struct sockaddr*>(&clientAddress),
                 sizeof(clientAddress)) == -1) {
