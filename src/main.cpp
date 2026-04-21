@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include<vector>
+#include <arpa/inet.h>
+
 int main(int argc, char *argv[]) {
     // Flush after every std::cout / std::cerr
     std::cout << std::unitbuf;
