@@ -59,7 +59,6 @@ int main() {
 
         // buffer[bytesRead] = '\0';
         std::cout << "Received " << bytesRead << " bytes: " << buffer << std::endl;
-
         // Step 1: Find question section length
         int pos = 12;
 
@@ -81,8 +80,39 @@ int main() {
         response[1] = buffer[1];
 
         // Step 4: Flags (QR = 1)
-        uint16_t flags = htons(0x8000);
-        memcpy(&response[2], &flags, 2);
+        // Extract request flags
+        uint16_t reqFlags;
+        memcpy(&reqFlags, &buffer[2], 2);
+        reqFlags = ntohs(reqFlags);
+
+        // Extract OPCODE and RD
+        uint16_t opcode = (reqFlags >> 11) & 0xF;
+        uint16_t rd     = (reqFlags >> 8)  & 0x1;
+
+        // Build response flags
+        uint16_t flags = 0;
+
+        // QR = 1 (response)
+        flags |= (1 << 15);
+
+        // OPCODE (copy from request)
+        flags |= (opcode << 11);
+
+        // RD (copy from request)
+        flags |= (rd << 8);
+
+        // RCODE
+        if (opcode == 0) {
+            flags |= 0;   // no error
+        } else {
+            flags |= 4;   // not implemented
+        }
+
+        // Convert to network byte order
+        flags = htons(flags);
+
+        // Copy into response
+        memcpy(&response[2], &flags, 2);    
 
         // Step 5: QDCOUNT = 1
         uint16_t qdcount = htons(1);
