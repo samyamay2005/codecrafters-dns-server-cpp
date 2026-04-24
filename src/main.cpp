@@ -95,10 +95,21 @@ int main(int argc, char *argv[]) {
             int start = pos;
 
             // move over domain name (labels)
-            while (buffer[pos] != 0) {
+            while (true) {
+                // Check for compression pointer (11xxxxxx)
+                if ((buffer[pos] & 0xC0) == 0xC0) {
+                    pos += 2; // pointer is 2 bytes
+                    break;
+                }
+
+                // Normal label
+                if (buffer[pos] == 0) {
+                    pos += 1; // end of domain
+                    break;
+                }
+
                 pos += buffer[pos] + 1;
             }
-            pos++; // skip null byte
 
             pos += 4; // TYPE (2 bytes) + CLASS (2 bytes)
 
