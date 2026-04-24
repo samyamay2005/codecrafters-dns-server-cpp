@@ -77,35 +77,127 @@ int main(int argc, char *argv[]) {
         // Receive from client
         bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0,
         reinterpret_cast<struct sockaddr*>(&clientAddress), &clientAddrLen);
-
         if (bytesRead == -1) {
             perror("Error receiving data");
             break;
         }
 
-        // Forward to resolver
-        sendto(resolverSock, buffer, bytesRead, 0,
-           (sockaddr*)&resolverAddr, sizeof(resolverAddr));
+        uint16_t qdcount;
+        memcpy(&qdcount, &buffer[4], 2);
+        qdcount = ntohs(qdcount);
 
-        // Receive from resolver
-        char resolverResponse[512];
-        socklen_t resolverLen = sizeof(resolverAddr);
+        int pos = 12;
 
-        int resBytes = recvfrom(resolverSock, resolverResponse, 512, 0,
-                           (sockaddr*)&resolverAddr, &resolverLen);
+        // store raw question chunks
+        std::vector<std::vector<char>> questions;
 
-        if (resBytes < 0) {
-            perror("Resolver recv failed");
-            continue;
+        for (int i = 0; i < qdcount; i++) {
+            int start = pos;
+
+            // move over domain name (labels)
+            while (buffer[pos] != 0) {
+                pos += buffer[pos] + 1;
+            }
+            pos++; // skip null byte
+
+            pos += 4; // TYPE (2 bytes) + CLASS (2 bytes)
+
+            int end = pos;
+
+            // copy raw question
+            questions.emplace_back(buffer + start, buffer + end);
+        }
+        std::vector<std::vector<char>> responses;
+
+        for (int i = 0; i < qdcount; i++) {
+
+            char newPacket[512];
+            memset(newPacket, 0, 512);
+
+            // Copy original header
+            memcpy(newPacket, buffer, 12);
+
+            // Set QDCOUNT = 1
+            uint16_t one = htons(1);
+            memcpy(&newPacket[4], &one, 2);
+
+            // Copy ONE question
+            int newPos = 12;
+            memcpy(newPacket + newPos, questions[i].data(), questions[i].size());
+            newPos += questions[i].size();
+
+            // Send to resolver
+            sendto(resolverSock, newPacket, newPos, 0,
+                (sockaddr*)&resolverAddr, sizeof(resolverAddr));
+
+            // Receive response
+            char resp[512];
+            socklen_t len = sizeof(resolverAddr);
+
+            int rBytes = recvfrom(resolverSock, resp, 512, 0,
+                          (sockaddr*)&resolverAddr, &len);
+
+            if (rBytes < 0) continue;
+
+            // Fix ID
+            resp[0] = buffer[0];
+            resp[1] = buffer[1];
+
+            responses.emplace_back(resp, resp + rBytes);
+        }
+    
+        char finalResp[512];
+        memset(finalResp, 0, 512);
+
+        // Copy header from original request
+        memcpy(finalResp, buffer, 12);
+
+        // Set QR = 1 (response)
+        finalResp[2] |= 0x80;
+
+        // Set QDCOUNT = original qdcount
+        uint16_t qd_net = htons(qdcount);
+        memcpy(&finalResp[4], &qd_net, 2);
+
+        // ANCOUNT = number of answers
+        uint16_t an_net = htons(responses.size());
+        memcpy(&finalResp[6], &an_net, 2);
+
+        // NSCOUNT, ARCOUNT = 0
+        uint16_t zero = 0;
+        memcpy(&finalResp[8], &zero, 2);
+        memcpy(&finalResp[10], &zero, 2);
+
+        // Copy ALL original questions
+        int posFinal = 12;
+        for (auto &q : questions) {
+            memcpy(finalResp + posFinal, q.data(), q.size());
+            posFinal += q.size();
+        }
+        
+        for (int i = 0; i < responses.size(); i++) {
+
+            char* resp = responses[i].data();
+
+            // skip header (12 bytes)
+            int p = 12;
+
+            // skip question
+            while (resp[p] != 0) {
+                p += resp[p] + 1;
+            }
+            p++; // null
+            p += 4; // type + class
+
+            // remaining = answer section
+            int ansLen = responses[i].size() - p;
+
+            memcpy(finalResp + posFinal, resp + p, ansLen);
+            posFinal += ansLen;
         }
 
-        // Fix transaction ID
-        resolverResponse[0] = buffer[0];
-        resolverResponse[1] = buffer[1];
-
         // Send back to client
-        sendto(udpSocket, resolverResponse, resBytes, 0,
-           (sockaddr*)&clientAddress, clientAddrLen);
+        sendto(udpSocket, finalResp, posFinal, 0,(sockaddr*)&clientAddress, clientAddrLen);
     }
 
     close(udpSocket);
