@@ -171,9 +171,16 @@ int main(int argc, char *argv[]) {
         memcpy(&finalResp[4], &qd_net, 2);
 
         // ANCOUNT = number of answers
-        uint16_t an_net = htons(responses.size());
-        memcpy(&finalResp[6], &an_net, 2);
+        int totalAnswers = 0;
 
+        for (auto &r : responses) {
+            uint16_t an;
+            memcpy(&an, &r[6], 2);
+            totalAnswers += ntohs(an);
+        }
+
+        uint16_t an_net = htons(totalAnswers);
+        memcpy(&finalResp[6], &an_net, 2);
         // NSCOUNT, ARCOUNT = 0
         uint16_t zero = 0;
         memcpy(&finalResp[8], &zero, 2);
