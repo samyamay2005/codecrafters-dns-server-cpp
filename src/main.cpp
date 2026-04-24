@@ -194,10 +194,21 @@ int main(int argc, char *argv[]) {
             int p = 12;
 
             // skip question
-            while (resp[p] != 0) {
-                p += resp[p] + 1;
+            while (true) {
+            // Check for compression pointer (11xxxxxx)
+            if ((resp[p] & 0xC0) == 0xC0) {
+                p += 2; // pointer is 2 bytes
+                break;
             }
-            p++; // null
+
+            // Normal label
+            if (resp[p] == 0) {
+                p += 1; // end of domain
+                break;
+            }
+
+            p += resp[p] + 1;
+        }
             p += 4; // type + class
 
             // remaining = answer section
