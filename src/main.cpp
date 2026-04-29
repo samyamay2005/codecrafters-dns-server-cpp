@@ -128,6 +128,10 @@ int main(int argc, char *argv[]) {
             // Copy original header
             memcpy(newPacket, buffer, 12);
 
+            // generate unique ID per query
+            uint16_t newID = htons(i + 1);  // simple and works
+            memcpy(&newPacket[0], &newID, 2);
+
             // Set QDCOUNT = 1
             uint16_t one = htons(1);
             memcpy(&newPacket[4], &one, 2);
@@ -149,16 +153,13 @@ int main(int argc, char *argv[]) {
 
             if (rBytes < 0) continue;
 
-            // Fix ID
-            resp[0] = buffer[0];
-            resp[1] = buffer[1];
-
+            
             responses.emplace_back(resp, resp + rBytes);
         }
     
         char finalResp[512]={0};
  
-        memset(finalResp, 0, 512);
+        
 
         // Copy header from original request
         memcpy(finalResp, buffer, 12);
