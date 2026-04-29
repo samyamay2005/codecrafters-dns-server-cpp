@@ -145,8 +145,7 @@ int main(int argc, char *argv[]) {
             char resp[512];
             socklen_t len = sizeof(resolverAddr);
 
-            int rBytes = recvfrom(resolverSock, resp, 512, 0,
-                          (sockaddr*)&resolverAddr, &len);
+            int rBytes = recvfrom(resolverSock, resp, 512, 0,(sockaddr*)&resolverAddr, &len);
 
             if (rBytes < 0) continue;
 
@@ -168,8 +167,7 @@ int main(int argc, char *argv[]) {
         finalResp[2] |= 0x80;
         int actualQuestions = 0;
         // Set QDCOUNT = original qdcount
-        uint16_t qd_net = htons(actualQuestions);
-        memcpy(&finalResp[4], &qd_net, 2);
+       
 
         // ANCOUNT = number of answers
         int actualAnswers = 0;
@@ -190,7 +188,8 @@ int main(int argc, char *argv[]) {
             posFinal += q.size();
             actualQuestions++;
         }
-        
+        uint16_t qd_net = htons(actualQuestions);
+        memcpy(&finalResp[4], &qd_net, 2);
         for (int i = 0; i < responses.size(); i++) {
 
             char* resp = responses[i].data();
@@ -225,14 +224,16 @@ int main(int argc, char *argv[]) {
             int thisAnsCount = ntohs(an);
 
             if (posFinal + ansLen > 512) {
+                actualAnswers += thisAnsCount;
                 finalResp[2] |= 0x02; // truncated
                 break;
             }
-            uint16_t an_net = htons(actualAnswers);
-            memcpy(&finalResp[6], &an_net, 2);
+            
             memcpy(finalResp + posFinal, resp + p, ansLen);
             posFinal += ansLen;
         }
+        uint16_t an_net = htons(actualAnswers);
+        memcpy(&finalResp[6], &an_net, 2);
 
         // Send back to client
         sendto(udpSocket, finalResp, posFinal, 0,(sockaddr*)&clientAddress, clientAddrLen);
