@@ -157,7 +157,8 @@ int main(int argc, char *argv[]) {
             responses.emplace_back(resp, resp + rBytes);
         }
     
-        char finalResp[512];
+        char finalResp[512]={0};
+ 
         memset(finalResp, 0, 512);
 
         // Copy header from original request
@@ -165,22 +166,13 @@ int main(int argc, char *argv[]) {
 
         // Set QR = 1 (response)
         finalResp[2] |= 0x80;
-
+        int actualQuestions = 0;
         // Set QDCOUNT = original qdcount
-        uint16_t qd_net = htons(qdcount);
+        uint16_t qd_net = htons(actualQuestions);
         memcpy(&finalResp[4], &qd_net, 2);
 
         // ANCOUNT = number of answers
-        int totalAnswers = 0;
-
-        for (auto &r : responses) {
-            uint16_t an;
-            memcpy(&an, &r[6], 2);
-            totalAnswers += ntohs(an);
-        }
-
-        uint16_t an_net = htons(totalAnswers);
-        memcpy(&finalResp[6], &an_net, 2);
+        int actualAnswers = 0;
         // NSCOUNT, ARCOUNT = 0
         uint16_t zero = 0;
         memcpy(&finalResp[8], &zero, 2);
@@ -188,9 +180,15 @@ int main(int argc, char *argv[]) {
 
         // Copy ALL original questions
         int posFinal = 12;
+        
         for (auto &q : questions) {
+            if (posFinal + q.size() > 512) {
+                finalResp[2] |= 0x02; // truncated
+                break;
+            }
             memcpy(finalResp + posFinal, q.data(), q.size());
             posFinal += q.size();
+            actualQuestions++;
         }
         
         for (int i = 0; i < responses.size(); i++) {
@@ -221,6 +219,17 @@ int main(int argc, char *argv[]) {
             // remaining = answer section
             int ansLen = responses[i].size() - p;
 
+            // how many answers in this response
+            uint16_t an;
+            memcpy(&an, &responses[i][6], 2);
+            int thisAnsCount = ntohs(an);
+
+            if (posFinal + ansLen > 512) {
+                finalResp[2] |= 0x02; // truncated
+                break;
+            }
+            uint16_t an_net = htons(actualAnswers);
+            memcpy(&finalResp[6], &an_net, 2);
             memcpy(finalResp + posFinal, resp + p, ansLen);
             posFinal += ansLen;
         }
