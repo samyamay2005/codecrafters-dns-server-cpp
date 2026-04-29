@@ -224,13 +224,13 @@ int main(int argc, char *argv[]) {
             int thisAnsCount = ntohs(an);
 
             if (posFinal + ansLen > 512) {
-                actualAnswers += thisAnsCount;
                 finalResp[2] |= 0x02; // truncated
                 break;
             }
             
             memcpy(finalResp + posFinal, resp + p, ansLen);
             posFinal += ansLen;
+            actualAnswers += thisAnsCount; 
         }
         uint16_t an_net = htons(actualAnswers);
         memcpy(&finalResp[6], &an_net, 2);
