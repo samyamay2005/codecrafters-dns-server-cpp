@@ -183,6 +183,10 @@ int main(int argc, char *argv[]) {
             uint16_t newID = htons(i + 1);
             memcpy(&newPacket[0], &newID, 2);
 
+            // Flags: keep OPCODE + RD from original, but force QR=0 (query)
+            newPacket[2] = buffer[2] & 0x7B;  // clear QR(7), AA(2), TC(1)
+            newPacket[3] = buffer[3] & 0x00;  // clear RA, Z, RCODE
+
             uint16_t one = htons(1);
             memcpy(&newPacket[4], &one, 2);
 
@@ -196,10 +200,24 @@ int main(int argc, char *argv[]) {
             sendto(resolverSock, newPacket, newPos, 0,
                    (sockaddr*)&resolverAddr, sizeof(resolverAddr));
 
+            // Receive response, discarding any packets whose ID doesn't match
+            // what we sent (stale packets from a previous query can linger in
+            // the socket buffer and cause the wrong response to be accepted).
             char resp[512];
-            socklen_t len = sizeof(resolverAddr);
-            int rBytes = recvfrom(resolverSock, resp, 512, 0,
-                                  (sockaddr*)&resolverAddr, &len);
+            int rBytes = -1;
+            for (int attempt = 0; attempt < 10; attempt++) {
+                socklen_t len = sizeof(resolverAddr);
+                int n = recvfrom(resolverSock, resp, 512, 0,
+                                 (sockaddr*)&resolverAddr, &len);
+                if (n < 2) break;  // timeout or error
+                uint16_t gotID;
+                memcpy(&gotID, resp, 2);
+                if (gotID == newID) {  // newID is already in network byte order
+                    rBytes = n;
+                    break;
+                }
+                // wrong ID — discard and try again
+            }
             if (rBytes > 0)
                 responses.emplace_back(resp, resp + rBytes);
             else
