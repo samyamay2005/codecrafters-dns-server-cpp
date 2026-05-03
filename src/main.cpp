@@ -229,13 +229,7 @@ int main(int argc, char *argv[]) {
                 break;
             }
             // fix compression pointer if needed
-            for (int j = p; j < responses[i].size() - 1; j++) {
-                if ((unsigned char)resp[j] == 0xC0) {
-                    // force pointer to 0xC00C
-                    resp[j] = 0xC0;
-                    resp[j+1] = 0x0C;
-                }
-            }
+            
             memcpy(finalResp + posFinal, resp + p, ansLen);
             posFinal += ansLen;
             actualAnswers += thisAnsCount; 
