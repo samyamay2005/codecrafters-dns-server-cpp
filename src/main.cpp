@@ -6,8 +6,7 @@
 #include <vector>
 #include <arpa/inet.h>
 
-std::cout << std::unitbuf;
-std::cerr << std::unitbuf;
+
 
 // Expand a domain name at `pos` in `pkt` (len=pktLen) into a flat label sequence.
 // Returns the number of bytes written into `out`, and advances `pos` past the
@@ -162,17 +161,25 @@ int main(int argc, char *argv[]) {
 
         int pos = 12;
 
-        // Collect raw question sections
+        // Collect questions, expanding any compression pointers so each
+        // question is self-contained (the resolver only sees one question
+        // at a time and cannot resolve pointers into a multi-question packet).
         std::vector<std::vector<char>> questions;
         for (int i = 0; i < qdcount; i++) {
-            int start = pos;
-            while (pos < bytesRead) {
-                if ((buffer[pos] & 0xC0) == 0xC0) { pos += 2; break; }
-                if (buffer[pos] == 0)               { pos += 1; break; }
-                pos += (uint8_t)buffer[pos] + 1;
-            }
-            pos += 4; // TYPE + CLASS
-            questions.emplace_back(buffer + start, buffer + pos);
+            char nameBuf[256];
+            int nameLen = expandName(buffer, bytesRead, pos, nameBuf, sizeof(nameBuf));
+            if (nameLen < 0) break;
+
+            // TYPE + CLASS follow the name
+            if (pos + 4 > bytesRead) break;
+            char typeClass[4];
+            memcpy(typeClass, buffer + pos, 4);
+            pos += 4;
+
+            // Build: expanded name + TYPE + CLASS
+            std::vector<char> q(nameBuf, nameBuf + nameLen);
+            q.insert(q.end(), typeClass, typeClass + 4);
+            questions.push_back(std::move(q));
         }
 
         // Forward each question individually to resolver
