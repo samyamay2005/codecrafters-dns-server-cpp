@@ -52,33 +52,42 @@ static int expandName(const char* pkt, int pktLen, int& pos, char* out, int outM
     return -1;
 }
 
+// Skip a domain name at `p` in `resp`, advancing p past it.
+// Handles both plain labels and compression pointers.
+static void skipName(const char* resp, int respLen, int& p) {
+    while (p < respLen) {
+        if ((resp[p] & 0xC0) == 0xC0) { p += 2; return; }  // pointer: 2 bytes total
+        if (resp[p] == 0)              { p += 1; return; }  // end of labels
+        p += (uint8_t)resp[p] + 1;
+    }
+}
+
 // Copy one answer RR from `resp` starting at `p` into `out` at `outPos`.
 // Expands any compressed name in the RR name field to avoid cross-packet pointers.
-// Returns bytes written, or -1 on error / overflow.
-static int copyAnswer(const char* resp, int respLen, int p,
+// Advances `p` past the entire RR in the source packet.
+// Returns bytes written into out, or -1 on error / overflow.
+static int copyAnswer(const char* resp, int respLen, int& p,
                       char* out, int outPos, int outMax) {
-    // Expand the name
+    // Expand the name (advances p past it in resp)
     char nameBuf[256];
     int nameLen = expandName(resp, respLen, p, nameBuf, sizeof(nameBuf));
     if (nameLen < 0) return -1;
 
-    // After expandName, p points past the name in resp.
-    // We need TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2) + RDATA
+    // p now points at TYPE(2)+CLASS(2)+TTL(4)+RDLENGTH(2)+RDATA
     if (p + 10 > respLen) return -1;
     uint16_t rdlen;
     memcpy(&rdlen, resp + p + 8, 2);
     rdlen = ntohs(rdlen);
-    int fixedFields = 10 + rdlen;
+    int fixedFields = 10 + (int)rdlen;
     if (p + fixedFields > respLen) return -1;
 
     int needed = nameLen + fixedFields;
     if (outPos + needed > outMax) return -1;
 
     memcpy(out + outPos, nameBuf, nameLen);
-    outPos += nameLen;
-    memcpy(out + outPos, resp + p, fixedFields);
-    outPos += fixedFields;
+    memcpy(out + outPos + nameLen, resp + p, fixedFields);
 
+    p += fixedFields;  // advance p past the fixed fields + rdata in source
     return needed;
 }
 
@@ -258,7 +267,8 @@ int main(int argc, char *argv[]) {
             }
             p += 4; // TYPE + CLASS of question
 
-            // Copy each answer RR with pointer expansion
+            // Copy each answer RR with pointer expansion.
+            // copyAnswer advances p past the full RR in the source packet.
             for (int a = 0; a < thisAnsCount && p < respLen; a++) {
                 int written = copyAnswer(resp, respLen, p,
                                          finalResp, posFinal, 512);
@@ -268,20 +278,6 @@ int main(int argc, char *argv[]) {
                 }
                 posFinal += written;
                 actualAnswers++;
-
-                // Advance p past this RR in the *original* resolver packet
-                // (skip the name, then fixed 10 bytes + rdlength bytes)
-                int p2 = p;
-                while (p2 < respLen) {
-                    if ((resp[p2] & 0xC0) == 0xC0) { p2 += 2; break; }
-                    if (resp[p2] == 0)               { p2 += 1; break; }
-                    p2 += (uint8_t)resp[p2] + 1;
-                }
-                if (p2 + 10 > respLen) break;
-                uint16_t rdlen;
-                memcpy(&rdlen, resp + p2 + 8, 2);
-                p2 += 10 + ntohs(rdlen);
-                p = p2;
             }
         }
 
