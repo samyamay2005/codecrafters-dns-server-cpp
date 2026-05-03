@@ -6,7 +6,8 @@
 #include <vector>
 #include <arpa/inet.h>
 
-
+std::cout << std::unitbuf;
+std::cerr << std::unitbuf;
 
 // Expand a domain name at `pos` in `pkt` (len=pktLen) into a flat label sequence.
 // Returns the number of bytes written into `out`, and advances `pos` past the
